@@ -1,0 +1,287 @@
+package com.ecommerce.recommendation;
+
+import java.util.*;
+import java.util.stream.Collectors;
+
+/**
+ * 个性化商品推荐系统核心类
+ */
+public class ProductRecommender {
+    // 用户购买历史数据存储
+    private final Map<String, List<PurchaseRecord>> userPurchaseHistory;
+    // 商品数据存储
+    private final Map<String, Product> productCatalog;
+    // 用户偏好数据
+    private final Map<String, UserPreference> userPreferences;
+
+    /**
+     * 构造函数初始化数据存储
+     */
+    public ProductRecommender() {
+        this.userPurchaseHistory = new HashMap<>();
+        this.productCatalog = new HashMap<>();
+        this.userPreferences = new HashMap<>();
+    }
+
+    /**
+     * 分析用户购买历史并更新偏好
+     * @param userId 用户ID
+     */
+    public void analyzeUserBehavior(String userId) {
+        List<PurchaseRecord> purchases = userPurchaseHistory.getOrDefault(userId, new ArrayList<>());
+        UserPreference preference = userPreferences.computeIfAbsent(userId, k -> new UserPreference());
+
+        // 分析购买频率和商品类别偏好
+        Map<String, Integer> categoryFrequency = new HashMap<>();
+        Map<String, Integer> brandFrequency = new HashMap<>();
+
+        for (PurchaseRecord record : purchases) {
+            Product product = productCatalog.get(record.getProductId());
+            if (product != null) {
+                // 更新类别偏好
+                categoryFrequency.merge(product.getCategory(), 1, Integer::sum);
+                // 更新品牌偏好
+                brandFrequency.merge(product.getBrand(), 1, Integer::sum);
+            }
+        }
+
+        // 更新用户偏好
+        preference.updateCategoryPreferences(categoryFrequency);
+        preference.updateBrandPreferences(brandFrequency);
+        
+        System.out.println("Updated preferences for user: " + userId);
+    }
+
+    /**
+     * 生成个性化推荐商品列表
+     * @param userId 用户ID
+     * @param maxRecommendations 最大推荐数量
+     * @return 推荐商品列表
+     */
+    public List<Product> generateRecommendations(String userId, int maxRecommendations) {
+        UserPreference preference = userPreferences.get(userId);
+        if (preference == null) {
+            return getPopularProducts(maxRecommendations);
+        }
+
+        // 基于用户偏好的推荐算法
+        return productCatalog.values().stream()
+                .filter(product -> !hasPurchased(userId, product.getProductId()))
+                .sorted((p1, p2) -> {
+                    // 根据用户偏好评分排序
+                    double score1 = calculateProductScore(p1, preference);
+                    double score2 = calculateProductScore(p2, preference);
+                    return Double.compare(score2, score1);
+                })
+                .limit(maxRecommendations)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * 计算商品对用户的推荐分数
+     */
+    private double calculateProductScore(Product product, UserPreference preference) {
+        double categoryScore = preference.getCategoryPreferenceScore(product.getCategory());
+        double brandScore = preference.getBrandPreferenceScore(product.getBrand());
+        double popularityScore = product.getPopularityScore();
+        
+        // 加权计算总分数 (权重可调整)
+        return 0.4 * categoryScore + 0.3 * brandScore + 0.3 * popularityScore;
+    }
+
+    /**
+     * 检查用户是否已购买过该商品
+     */
+    private boolean hasPurchased(String userId, String productId) {
+        return userPurchaseHistory.getOrDefault(userId, new ArrayList<>())
+                .stream()
+                .anyMatch(record -> record.getProductId().equals(productId));
+    }
+
+    /**
+     * 获取热门商品 (当用户无足够偏好数据时使用)
+     */
+    private List<Product> getPopularProducts(int maxRecommendations) {
+        return productCatalog.values().stream()
+                .sorted(Comparator.comparingDouble(Product::getPopularityScore).reversed())
+                .limit(maxRecommendations)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * 实时响应用户浏览行为
+     * @param userId 用户ID
+     * @param productId 浏览的商品ID
+     * @return 即时推荐列表
+     */
+    public List<Product> respondToUserAction(String userId, String productId) {
+        Product viewedProduct = productCatalog.get(productId);
+        if (viewedProduct == null) {
+            return Collections.emptyList();
+        }
+
+        // 基于当前浏览商品的相似推荐
+        return productCatalog.values().stream()
+                .filter(product -> !product.getProductId().equals(productId))
+                .filter(product -> product.getCategory().equals(viewedProduct.getCategory()))
+                .sorted(Comparator.comparingDouble(Product::getPopularityScore).reversed())
+                .limit(5)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * A/B测试不同推荐策略
+     * @param userId 用户ID
+     * @param strategyA 策略A
+     * @param strategyB 策略B
+     * @return 测试结果
+     */
+    public ABTestResult runABTest(String userId, RecommendationStrategy strategyA, RecommendationStrategy strategyB) {
+        List<Product> recommendationsA = strategyA.generateRecommendations(userId, 5);
+        List<Product> recommendationsB = strategyB.generateRecommendations(userId, 5);
+        
+        // 模拟用户对推荐结果的点击率 (实际应用中应从真实数据获取)
+        double clickRateA = simulateClickRate(recommendationsA);
+        double clickRateB = simulateClickRate(recommendationsB);
+        
+        return new ABTestResult(strategyA.getName(), clickRateA, 
+                              strategyB.getName(), clickRateB);
+    }
+
+    private double simulateClickRate(List<Product> recommendations) {
+        // 简单模拟 - 实际应用中应使用真实用户行为数据
+        Random random = new Random();
+        return 0.2 + random.nextDouble() * 0.3; // 模拟20%-50%的点击率
+    }
+
+    // 添加示例数据的方法
+    public void addSampleData() {
+        // 添加示例商品
+        productCatalog.put("p1", new Product("p1", "Laptop", "Electronics", "BrandA", 4.5));
+        productCatalog.put("p2", new Product("p2", "Smartphone", "Electronics", "BrandB", 4.7));
+        productCatalog.put("p3", new Product("p3", "Headphones", "Electronics", "BrandA", 4.2));
+        productCatalog.put("p4", new Product("p4", "T-Shirt", "Clothing", "BrandC", 3.9));
+        productCatalog.put("p5", new Product("p5", "Jeans", "Clothing", "BrandD", 4.1));
+        
+        // 添加示例购买记录
+        addPurchaseRecord("user1", "p1");
+        addPurchaseRecord("user1", "p2");
+        addPurchaseRecord("user1", "p2"); // 重复购买
+        addPurchaseRecord("user2", "p4");
+        addPurchaseRecord("user2", "p5");
+    }
+
+    private void addPurchaseRecord(String userId, String productId) {
+        List<PurchaseRecord> records = userPurchaseHistory.computeIfAbsent(userId, k -> new ArrayList<>());
+        records.add(new PurchaseRecord(productId, new Date()));
+    }
+}
+
+/**
+ * 商品类
+ */
+class Product {
+    private final String productId;
+    private final String name;
+    private final String category;
+    private final String brand;
+    private final double popularityScore;
+
+    public Product(String productId, String name, String category, String brand, double popularityScore) {
+        this.productId = productId;
+        this.name = name;
+        this.category = category;
+        this.brand = brand;
+        this.popularityScore = popularityScore;
+    }
+
+    // Getter方法
+    public String getProductId() { return productId; }
+    public String getName() { return name; }
+    public String getCategory() { return category; }
+    public String getBrand() { return brand; }
+    public double getPopularityScore() { return popularityScore; }
+}
+
+/**
+ * 用户偏好类
+ */
+class UserPreference {
+    private final Map<String, Double> categoryPreferences;
+    private final Map<String, Double> brandPreferences;
+
+    public UserPreference() {
+        this.categoryPreferences = new HashMap<>();
+        this.brandPreferences = new HashMap<>();
+    }
+
+    public void updateCategoryPreferences(Map<String, Integer> frequencyMap) {
+        updatePreferences(categoryPreferences, frequencyMap);
+    }
+
+    public void updateBrandPreferences(Map<String, Integer> frequencyMap) {
+        updatePreferences(brandPreferences, frequencyMap);
+    }
+
+    private void updatePreferences(Map<String, Double> preferenceMap, Map<String, Integer> frequencyMap) {
+        int total = frequencyMap.values().stream().mapToInt(Integer::intValue).sum();
+        frequencyMap.forEach((key, count) -> 
+            preferenceMap.put(key, (double) count / total)
+        );
+    }
+
+    public double getCategoryPreferenceScore(String category) {
+        return categoryPreferences.getOrDefault(category, 0.0);
+    }
+
+    public double getBrandPreferenceScore(String brand) {
+        return brandPreferences.getOrDefault(brand, 0.0);
+    }
+}
+
+/**
+ * 购买记录类
+ */
+class PurchaseRecord {
+    private final String productId;
+    private final Date purchaseDate;
+
+    public PurchaseRecord(String productId, Date purchaseDate) {
+        this.productId = productId;
+        this.purchaseDate = purchaseDate;
+    }
+
+    public String getProductId() { return productId; }
+    public Date getPurchaseDate() { return purchaseDate; }
+}
+
+/**
+ * 推荐策略接口
+ */
+interface RecommendationStrategy {
+    List<Product> generateRecommendations(String userId, int maxRecommendations);
+    String getName();
+}
+
+/**
+ * A/B测试结果类
+ */
+class ABTestResult {
+    private final String strategyAName;
+    private final double strategyAClickRate;
+    private final String strategyBName;
+    private final double strategyBClickRate;
+
+    public ABTestResult(String strategyAName, double strategyAClickRate, 
+                       String strategyBName, double strategyBClickRate) {
+        this.strategyAName = strategyAName;
+        this.strategyAClickRate = strategyAClickRate;
+        this.strategyBName = strategyBName;
+        this.strategyBClickRate = strategyBClickRate;
+    }
+
+    // Getter方法和结果分析方法
+    public String getWinner() {
+        return strategyAClickRate > strategyBClickRate ? strategyAName : strategyBName;
+    }
+}
