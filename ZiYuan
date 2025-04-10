@@ -1,0 +1,5 @@
+# 短信服务配置
+# 文件路径: src/main/resources/config/sms_config.properties
+sms.api_key=your_api_key_here
+sms.api_secret=your_secret_here
+sms.template_code=SMS_123456
