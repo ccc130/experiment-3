@@ -1,0 +1,22 @@
+// 文件路径: src/test/java/com/supermarket/sms/SmsServiceTest.java
+@ExtendWith(MockitoExtension.class)
+class SmsServiceTest {
+    
+    @Mock
+    private SmsProvider smsProvider;
+
+    @InjectMocks
+    private SmsService smsService;
+
+    @Test
+    void testSendVerificationCode_Success() {
+        // 测试方法局部变量（小驼峰）
+        String testPhone = "13800138000";
+        String testCode = "123456";
+        
+        when(smsProvider.send(any())).thenReturn(true);
+        
+        boolean result = smsService.sendVerificationCode(testPhone, testCode);
+        assertTrue(result);
+    }
+}
