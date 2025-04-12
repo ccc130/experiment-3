@@ -1,0 +1,188 @@
+package com.supermarket.inventory;
+
+import java.util.*;
+import java.time.LocalDate;
+
+/**
+ * 库存管理核心模块
+ * 开发者：王渊博
+ */
+public class InventoryManager {
+    // 类成员变量（m前缀+大驼峰）
+    private int mStockThreshold = 10;
+    private int mRestockBatchSize = 50;
+    private List<InventoryAlertListener> mAlertListeners = new ArrayList<>();
+    private Map<Integer, Product> mProductMap = new HashMap<>();
+    private static final int MAX_HISTORY_DAYS = 30; // 常量（全大写+下划线）
+
+    /**
+     * 添加库存预警监听器
+     */
+    public void addAlertListener(InventoryAlertListener listener) {
+        mAlertListeners.add(listener);
+    }
+
+    /**
+     * 检查库存并触发预警
+     */
+    public void checkLowStock() {
+        for (Product product : mProductMap.values()) { // 局部变量（小驼峰）
+            if (product.getCurrentStock() < mStockThreshold) {
+                triggerLowStockAlert(product);
+            }
+        }
+    }
+
+    private void triggerLowStockAlert(Product product) {
+        String message = String.format(
+            "商品ID: %d, 名称: %s 库存不足！当前库存: %d, 阈值: %d",
+            product.getId(), product.getName(), product.getCurrentStock(), mStockThreshold
+        );
+        for (InventoryAlertListener listener : mAlertListeners) {
+            listener.onAlert(message);
+        }
+    }
+
+    /**
+     * 生成采购计划（按库存消耗速度计算）
+     */
+    public List<PurchasePlan> generatePurchasePlans() {
+        List<PurchasePlan> plans = new ArrayList<>();
+        for (Product product : mProductMap.values()) {
+            double avgDailyConsumption = calculateAvgConsumption(product.getId());
+            int daysToRestock = (int) Math.ceil(
+                (mStockThreshold - product.getCurrentStock()) / avgDailyConsumption
+            );
+            if (daysToRestock <= 7) { // 需在7天内补货
+                plans.add(new PurchasePlan(
+                    product.getId(),
+                    product.getName(),
+                    mRestockBatchSize,
+                    LocalDate.now().plusDays(daysToRestock)
+                ));
+            }
+        }
+        return plans;
+    }
+
+    /**
+     * 计算商品日均消耗量
+     */
+    private double calculateAvgConsumption(int productId) {
+        List<InventoryRecord> records = InventoryDao.getRecords(productId, MAX_HISTORY_DAYS);
+        if (records.isEmpty()) return 0;
+        int totalConsumed = records.stream()
+            .mapToInt(InventoryRecord::getQuantityChanged)
+            .sum();
+        return (double) totalConsumed / MAX_HISTORY_DAYS;
+    }
+
+    /**
+     * 多级库存调拨（从仓库到门店）
+     */
+    public void transferStock(int productId, int fromLocation, int toLocation, int quantity) {
+        Product product = mProductMap.get(productId);
+        if (product == null) {
+            throw new IllegalArgumentException("商品不存在: " + productId);
+        }
+        if (product.getLocationStock(fromLocation) < quantity) {
+            throw new IllegalStateException("调拨数量超过库存");
+        }
+        product.adjustStock(fromLocation, -quantity);
+        product.adjustStock(toLocation, quantity);
+        logTransfer(productId, fromLocation, toLocation, quantity);
+    }
+
+    private void logTransfer(int productId, int fromLocation, int toLocation, int quantity) {
+        String log = String.format(
+            "[调拨日志] 商品ID: %d, 从位置%d到%d, 数量: %d, 时间: %s",
+            productId, fromLocation, toLocation, quantity, LocalDate.now()
+        );
+        InventoryDao.saveTransferLog(log);
+    }
+
+    // 其他辅助方法
+    public void addProduct(Product product) {
+        mProductMap.put(product.getId(), product);
+    }
+
+    public Product getProduct(int productId) {
+        return mProductMap.get(productId);
+    }
+}
+
+// === 辅助类与接口 ===
+interface InventoryAlertListener {
+    void onAlert(String message);
+}
+
+class Product {
+    private int mId; // 类成员变量
+    private String mName;
+    private Map<Integer, Integer> mLocationStockMap = new HashMap<>(); // 各位置库存
+
+    public Product(int id, String name) {
+        this.mId = id;
+        this.mName = name;
+    }
+
+    public int getCurrentStock() {
+        return mLocationStockMap.values().stream().mapToInt(Integer::intValue).sum();
+    }
+
+    public int getLocationStock(int locationId) {
+        return mLocationStockMap.getOrDefault(locationId, 0);
+    }
+
+    public void adjustStock(int locationId, int delta) {
+        int current = mLocationStockMap.getOrDefault(locationId, 0);
+        mLocationStockMap.put(locationId, current + delta);
+    }
+
+    // Getters & Setters
+    public int getId() { return mId; }
+    public String getName() { return mName; }
+}
+
+class PurchasePlan {
+    private final int mProductId;
+    private final String mProductName;
+    private final int mQuantity;
+    private final LocalDate mRestockDate;
+
+    public PurchasePlan(int productId, String productName, int quantity, LocalDate restockDate) {
+        this.mProductId = productId;
+        this.mProductName = productName;
+        this.mQuantity = quantity;
+        this.mRestockDate = restockDate;
+    }
+
+    // Getters
+    public LocalDate getRestockDate() { return mRestockDate; }
+    public int getQuantity() { return mQuantity; }
+}
+
+class InventoryRecord {
+    private int mProductId;
+    private LocalDate mDate;
+    private int mQuantityChanged;
+
+    // Constructor & Getters
+    public InventoryRecord(int productId, LocalDate date, int quantityChanged) {
+        this.mProductId = productId;
+        this.mDate = date;
+        this.mQuantityChanged = quantityChanged;
+    }
+    public int getQuantityChanged() { return mQuantityChanged; }
+}
+
+// 模拟数据库操作类
+class InventoryDao {
+    static List<InventoryRecord> getRecords(int productId, int maxDays) {
+        // 模拟从数据库查询历史记录
+        return Collections.emptyList();
+    }
+    static void saveTransferLog(String log) {
+        System.out.println("保存调拨日志: " + log);
+    }
+}
