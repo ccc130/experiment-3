@@ -1,0 +1,119 @@
+// User.java - 用户实体类
+public class User {
+    private String mUsername;
+    private String mPassword;
+    private String mRole;
+
+    public User(String username, String password, String role) {
+        this.mUsername = username;
+        this.mPassword = password;
+        this.mRole = role;
+    }
+
+    // Getters and Setters
+    public String getUsername() {
+        return mUsername;
+    }
+
+    public void setUsername(String username) {
+        this.mUsername = username;
+    }
+
+    public String getPassword() {
+        return mPassword;
+    }
+
+    public void setPassword(String password) {
+        this.mPassword = password;
+    }
+
+    public String getRole() {
+        return mRole;
+    }
+
+    public void setRole(String role) {
+        this.mRole = role;
+    }
+}
+
+// AuthService.java - 认证服务类
+public class AuthService {
+    private static final Map<String, User> USER_DB = new HashMap<>();
+
+    static {
+        // 初始化测试用户
+        USER_DB.put("admin", new User("admin", "admin123", "ADMIN"));
+        USER_DB.put("cashier", new User("cashier", "cashier123", "CASHIER"));
+    }
+
+    public boolean register(User user) {
+        if (USER_DB.containsKey(user.getUsername())) {
+            return false; // 用户已存在
+        }
+        USER_DB.put(user.getUsername(), user);
+        return true;
+    }
+
+    public User login(String username, String password) {
+        User user = USER_DB.get(username);
+        if (user != null && user.getPassword().equals(password)) {
+            return user;
+        }
+        return null; // 登录失败
+    }
+
+    public boolean hasPermission(User user, String requiredRole) {
+        return user.getRole().equals(requiredRole);
+    }
+}
+
+// AuthController.java - 认证控制器
+public class AuthController {
+    private final AuthService mAuthService;
+
+    public AuthController() {
+        this.mAuthService = new AuthService();
+    }
+
+    public String handleLogin(String username, String password) {
+        User user = mAuthService.login(username, password);
+        if (user == null) {
+            return "登录失败：用户名或密码错误";
+        }
+        return "登录成功，用户角色：" + user.getRole();
+    }
+
+    public String handleRegister(String username, String password, String role) {
+        User user = new User(username, password, role);
+        boolean success = mAuthService.register(user);
+        if (!success) {
+            return "注册失败：用户名已存在";
+        }
+        return "注册成功";
+    }
+
+    public String checkPermission(String username, String requiredRole) {
+        User user = mAuthService.login(username, "暂不验证密码");
+        if (user == null) {
+            return "用户不存在";
+        }
+        boolean hasPermission = mAuthService.hasPermission(user, requiredRole);
+        return hasPermission ? "拥有权限" : "无权限";
+    }
+}
+
+// Main.java - 测试类
+public class Main {
+    public static void main(String[] args) {
+        AuthController controller = new AuthController();
+
+        // 测试注册
+        System.out.println(controller.handleRegister("test", "test123", "CASHIER"));
+
+        // 测试登录
+        System.out.println(controller.handleLogin("admin", "admin123"));
+
+        // 测试权限检查
+        System.out.println(controller.checkPermission("admin", "ADMIN"));
+    }
+}
