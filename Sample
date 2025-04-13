@@ -1,0 +1,92 @@
+// SMS服务接口类
+// 文件路径: src/main/java/com/supermarket/sms/SmsService.java
+public class SmsService {
+    private static final int MAX_RESEND_ATTEMPTS = 3; // 常量命名
+    
+    // 类成员变量（m前缀+大驼峰）
+    private String mApiKey;
+    private String mApiSecret;
+    
+    @Autowired
+    public SmsService(@Value("${sms.api-key}") String apiKey, 
+                     @Value("${sms.api-secret}") String apiSecret) {
+        this.mApiKey = apiKey;
+        this.mApiSecret = apiSecret;
+    }
+
+    public boolean sendVerificationCode(String phoneNumber, String code) {
+        // 局部变量（小驼峰）
+        String requestBody = buildSmsRequest(phoneNumber, code);
+        // 调用第三方短信接口...
+        return true;
+    }
+    
+    private String buildSmsRequest(String userPhone, String verifyCode) {
+        return String.format("{\"phone\":\"%s\",\"code\":\"%s\"}", 
+                            userPhone, verifyCode);
+    }
+}
+// 邮箱验证控制器
+// 文件路径: src/main/java/com/supermarket/email/EmailVerificationController.java
+@RestController
+@RequestMapping("/api/email")
+public class EmailVerificationController {
+    
+    // 类成员变量
+    private final EmailService mEmailService;
+    
+    @Autowired
+    public EmailVerificationController(EmailService emailService) {
+        this.mEmailService = emailService;
+    }
+
+    @PostMapping("/send")
+    public ResponseEntity<?> sendVerificationEmail(@RequestBody UserRequest request) {
+        String token = TokenGenerator.generateToken();
+        boolean isSent = mEmailService.sendVerificationEmail(
+            request.getUserEmail(), 
+            token
+        );
+        return isSent ? ResponseEntity.ok().build() : 
+               ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+    }
+}
+
+
+# 短信服务配置
+# 文件路径: src/main/resources/config/sms_config.properties
+sms.api_key=your_api_key_here
+sms.api_secret=your_secret_here
+sms.template_code=SMS_123456
+// 文件路径: src/test/java/com/supermarket/sms/SmsServiceTest.java
+@ExtendWith(MockitoExtension.class)
+class SmsServiceTest {
+    
+    @Mock
+    private SmsProvider smsProvider;
+
+    @InjectMocks
+    private SmsService smsService;
+
+    @Test
+    void testSendVerificationCode_Success() {
+        // 测试方法局部变量（小驼峰）
+        String testPhone = "13800138000";
+        String testCode = "123456";
+        
+        when(smsProvider.send(any())).thenReturn(true);
+        
+        boolean result = smsService.sendVerificationCode(testPhone, testCode);
+        assertTrue(result);
+    }
+}
+# 文件路径: src/main/resources/application-config.yml
+email:
+  smtp-host: smtp.supermarket.com
+  verification-template: |
+    <html>
+      <body>
+        您的验证码是：${code}
+      </body>
+    </html>
+  retry-count: 3
