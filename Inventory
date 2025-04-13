@@ -1,0 +1,196 @@
+package com.supermarket.inventory;
+
+import java.util.*;
+import java.util.stream.Collectors;
+
+/**
+ * 连锁超市库存管理系统核心类
+ */
+public class InventoryManager {
+    // 商品库存数据存储
+    private final Map<String, InventoryItem> inventoryItems;
+    // 门店库存数据
+    private final Map<String, Map<String, Integer>> storeInventories;
+    // 库存操作历史记录
+    private final List<InventoryOperation> operationHistory;
+
+    /**
+     * 构造函数初始化数据存储
+     */
+    public InventoryManager() {
+        this.inventoryItems = new HashMap<>();
+        this.storeInventories = new HashMap<>();
+        this.operationHistory = new ArrayList<>();
+    }
+
+    /**
+     * 添加新商品到库存系统
+     * @param itemId 商品ID
+     * @param name 商品名称
+     * @param category 商品类别
+     * @param supplier 供应商
+     * @param costPrice 成本价
+     * @param sellingPrice 售价
+     */
+    public void addNewItem(String itemId, String name, String category, 
+                         String supplier, double costPrice, double sellingPrice) {
+        if (inventoryItems.containsKey(itemId)) {
+            throw new IllegalArgumentException("商品ID已存在: " + itemId);
+        }
+        inventoryItems.put(itemId, new InventoryItem(itemId, name, category, supplier, costPrice, sellingPrice));
+        logOperation("ADD_ITEM", itemId, 0, "添加新商品");
+    }
+
+    /**
+     * 更新门店库存
+     * @param storeId 门店ID
+     * @param itemId 商品ID
+     * @param quantity 变化数量（正数为入库，负数为出库）
+     */
+    public void updateStoreInventory(String storeId, String itemId, int quantity) {
+        checkItemExists(itemId);
+        
+        Map<String, Integer> storeInventory = storeInventories.computeIfAbsent(storeId, k -> new HashMap<>());
+        int currentQuantity = storeInventory.getOrDefault(itemId, 0);
+        int newQuantity = currentQuantity + quantity;
+        
+        if (newQuantity < 0) {
+            throw new IllegalStateException("库存不足: 商品ID " + itemId + " 在门店 " + storeId);
+        }
+        
+        storeInventory.put(itemId, newQuantity);
+        logOperation("UPDATE_STOCK", itemId, quantity, "门店 " + storeId + " 库存更新");
+    }
+
+    /**
+     * 获取门店库存状态
+     * @param storeId 门店ID
+     * @return 该门店的库存状态报告
+     */
+    public StoreInventoryReport getStoreInventoryReport(String storeId) {
+        Map<String, Integer> storeInventory = storeInventories.getOrDefault(storeId, new HashMap<>());
+        
+        List<InventoryItemDetail> details = storeInventory.entrySet().stream()
+            .map(entry -> {
+                InventoryItem item = inventoryItems.get(entry.getKey());
+                return new InventoryItemDetail(
+                    entry.getKey(),
+                    item.getName(),
+                    item.getCategory(),
+                    entry.getValue(),
+                    item.getSellingPrice(),
+                    entry.getValue() * item.getSellingPrice()
+                );
+            })
+            .collect(Collectors.toList());
+        
+        double totalValue = details.stream()
+            .mapToDouble(InventoryItemDetail::getTotalValue)
+            .sum();
+        
+        return new StoreInventoryReport(storeId, details, totalValue);
+    }
+
+    /**
+     * 检查库存水平并生成补货建议
+     * @param storeId 门店ID
+     * @param threshold 库存阈值
+     * @return 需要补货的商品列表
+     */
+    public List<ReplenishmentRecommendation> generateReplenishmentRecommendations(String storeId, int threshold) {
+        Map<String, Integer> storeInventory = storeInventories.getOrDefault(storeId, new HashMap<>());
+        
+        return storeInventory.entrySet().stream()
+            .filter(entry -> entry.getValue() <= threshold)
+            .map(entry -> {
+                InventoryItem item = inventoryItems.get(entry.getKey());
+                int recommendedQuantity = calculateRecommendedQuantity(entry.getValue(), threshold);
+                return new ReplenishmentRecommendation(
+                    entry.getKey(),
+                    item.getName(),
+                    entry.getValue(),
+                    recommendedQuantity,
+                    item.getSupplier()
+                );
+            })
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * 计算推荐补货数量
+     */
+    private int calculateRecommendedQuantity(int currentQuantity, int threshold) {
+        // 简单算法: 补货到阈值的1.5倍
+        return (int) (threshold * 1.5) - currentQuantity;
+    }
+
+    /**
+     * 连锁超市间库存调拨
+     * @param fromStoreId 调出门店
+     * @param toStoreId 调入门店
+     * @param itemId 商品ID
+     * @param quantity 数量
+     */
+    public void transferInventory(String fromStoreId, String toStoreId, String itemId, int quantity) {
+        if (quantity <= 0) {
+            throw new IllegalArgumentException("调拨数量必须为正数");
+        }
+        
+        // 减少调出门店库存
+        updateStoreInventory(fromStoreId, itemId, -quantity);
+        // 增加调入门店库存
+        updateStoreInventory(toStoreId, itemId, quantity);
+        
+        logOperation("TRANSFER", itemId, quantity, 
+                   "从门店 " + fromStoreId + " 调拨到 " + toStoreId);
+    }
+
+    /**
+     * 记录库存操作历史
+     */
+    private void logOperation(String operationType, String itemId, int quantity, String notes) {
+        operationHistory.add(new InventoryOperation(
+            operationType,
+            itemId,
+            quantity,
+            new Date(),
+            notes
+        ));
+    }
+
+    /**
+     * 获取商品库存操作历史
+     * @param itemId 商品ID
+     * @return 该商品的操作历史记录
+     */
+    public List<InventoryOperation> getItemOperationHistory(String itemId) {
+        return operationHistory.stream()
+            .filter(op -> op.getItemId().equals(itemId))
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * 检查商品是否存在
+     */
+    private void checkItemExists(String itemId) {
+        if (!inventoryItems.containsKey(itemId)) {
+            throw new IllegalArgumentException("商品ID不存在: " + itemId);
+        }
+    }
+
+    /**
+     * 添加示例数据
+     */
+    public void addSampleData() {
+        // 添加示例商品
+        addNewItem("ITM001", "可口可乐", "饮料", "可口可乐公司", 2.5, 3.5);
+        addNewItem("ITM002", "乐事薯片", "零食", "百事食品", 3.0, 5.0);
+        addNewItem("ITM003", "金龙鱼大米", "粮油", "益海嘉里", 25.0, 35.0);
+        
+        // 初始化门店库存
+        updateStoreInventory("STORE001", "ITM001", 100);
+        updateStoreInventory("STORE001", "ITM002", 50);
+        updateStoreInventory("STORE002", "ITM001", 80);
+        updateStoreInventory("STORE002", "ITM003", 30);
+    }
+}
